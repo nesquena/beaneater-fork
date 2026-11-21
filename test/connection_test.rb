@@ -56,6 +56,45 @@ describe Beaneater::Connection do
       assert_equal 'localhost', @bc.host
       assert_equal 11300, @bc.port
     end
+
+    it "should use ENV['BEANSTALKD_URL'] when no address is given, and fall back to configuration when blank" do
+      saved_env = ENV['BEANSTALKD_URL']
+      saved_url = Beaneater.configuration.beanstalkd_url
+      server = TCPServer.new('127.0.0.1', 0)
+      peers = []
+      acceptor = Thread.new do
+        loop { peers << server.accept }
+      rescue IOError
+      end
+      port = server.addr[1]
+
+      ENV['BEANSTALKD_URL'] = "  127.0.0.1:#{port}  "
+      bc_env = Beaneater::Connection.new(nil)
+      assert_equal "127.0.0.1:#{port}", bc_env.address
+      assert_equal '127.0.0.1', bc_env.host
+      assert_equal port, bc_env.port
+      bc_env.close
+
+      ENV['BEANSTALKD_URL'] = ''
+      Beaneater.configuration.beanstalkd_url = "127.0.0.1:#{port}"
+      bc_cfg = Beaneater::Connection.new(nil)
+      assert_equal "127.0.0.1:#{port}", bc_cfg.address
+      bc_cfg.close
+
+      ENV.delete('BEANSTALKD_URL')
+      bc_nil = Beaneater::Connection.new(nil)
+      assert_equal "127.0.0.1:#{port}", bc_nil.address
+      bc_nil.close
+    ensure
+      saved_env.nil? ? ENV.delete('BEANSTALKD_URL') : ENV['BEANSTALKD_URL'] = saved_env
+      Beaneater.configuration.beanstalkd_url = saved_url
+      bc_env.close if bc_env
+      bc_cfg.close if bc_cfg
+      bc_nil.close if bc_nil
+      acceptor.kill if acceptor
+      peers.each { |p| p.close unless p.closed? }
+      server.close if server && !server.closed?
+    end
   end # new
 
   describe 'for timeout configuration' do
@@ -331,6 +370,74 @@ describe Beaneater::Connection do
       assert_same socket, @bc.connection
     end
 
+    it "should raise ExpectedCrlfError and drop the connection when a body is not followed by CRLF" do
+      server = TCPServer.new('127.0.0.1', 0)
+      peers = []
+      responder = Thread.new do
+        peer = server.accept
+        peers << peer
+        peer.gets("\r\n")
+        peer.write("RESERVED 1 3\r\nabcXX")
+        peer.flush
+      end
+      bc = Beaneater::Connection.new("127.0.0.1:#{server.addr[1]}")
+      socket = bc.connection
+      err = assert_raises(Beaneater::ExpectedCrlfError) { Timeout.timeout(5) { bc.transmit('reserve') } }
+      assert_equal 'reserve', err.cmd
+      assert_nil bc.connection
+      assert socket.closed?, "the desynchronized socket should be closed"
+      assert responder.join(5), "responder thread did not finish"
+    ensure
+      bc.close if bc
+      responder.kill if responder
+      peers.each { |p| p.close unless p.closed? }
+      server.close if server && !server.closed?
+    end
+
+    it "should parse stats bodies with unquoted string values, no header, and blank lines" do
+      server = TCPServer.new('127.0.0.1', 0)
+      peers = []
+      body = "custom-label: ready-now\nflag-on: true\nflag-off: false\n\n: orphan\n"
+      responder = Thread.new do
+        peer = server.accept
+        peers << peer
+        peer.gets("\r\n")
+        peer.write("OK #{body.bytesize}\r\n#{body}\r\n")
+        peer.flush
+      end
+      bc = Beaneater::Connection.new("127.0.0.1:#{server.addr[1]}")
+      res = Timeout.timeout(5) { bc.transmit('stats') }
+      assert_equal 'OK', res[:status]
+      assert_equal({ 'custom-label' => 'ready-now', 'flag-on' => true, 'flag-off' => false }, res[:body])
+      assert responder.join(5), "responder thread did not finish"
+    ensure
+      bc.close if bc
+      responder.kill if responder
+      peers.each { |p| p.close unless p.closed? }
+      server.close if server && !server.closed?
+    end
+
+    it "should guard _exchange when the socket is missing, distinguishing dropped from closed" do
+      server = TCPServer.new('127.0.0.1', 0)
+      peers = []
+      acceptor = Thread.new do
+        loop { peers << server.accept }
+      rescue IOError
+      end
+      bc = Beaneater::Connection.new("127.0.0.1:#{server.addr[1]}")
+
+      bc.send(:_drop_connection)
+      assert_raises(Errno::ENOTCONN) { bc.send(:_exchange, 'stats') }
+
+      bc.close
+      assert_raises(Beaneater::NotConnected) { bc.send(:_exchange, 'stats') }
+    ensure
+      bc.close if bc
+      acceptor.kill if acceptor
+      peers.each { |p| p.close unless p.closed? }
+      server.close if server && !server.closed?
+    end
+
     it "restores the watched tubes again when the connection drops while restoring them" do
       # A minimal beanstalkd that drops the 1st connection on 'stats' and the 2nd on 'ignore'
       server = TCPServer.new('127.0.0.1', 0)
@@ -571,6 +678,55 @@ describe Beaneater::Connection do
       @bc.close
       assert_nil @bc.connection
       assert_raises(Beaneater::NotConnected) { @bc.transmit 'stats' }
+    end
+
+    it "should drop the new socket and raise NotConnected when closed during establish_connection" do
+      server = TCPServer.new('127.0.0.1', 0)
+      peers = []
+      eof_seen = Queue.new
+      acceptor = Thread.new do
+        loop do
+          peer = server.accept
+          peers << peer
+          if peers.size == 1
+            peer.gets("\r\n")
+            peer.close
+          else
+            eof_seen << peer.read
+            break
+          end
+        end
+      rescue IOError
+      end
+
+      bc = Beaneater::Connection.new("127.0.0.1:#{server.addr[1]}")
+      connecting = Queue.new
+      closed = Queue.new
+      closer = Thread.new do
+        connecting.pop
+        bc.close
+        closed << true
+      end
+
+      orig_establish = bc.method(:establish_connection)
+      bc.define_singleton_method(:establish_connection) do
+        connecting << true
+        closed.pop
+        orig_establish.call
+      end
+
+      assert_raises(Beaneater::NotConnected) { Timeout.timeout(5) { bc.transmit('stats', retry_interval: 0) } }
+      assert closer.join(5), "closer thread did not finish"
+      assert_nil bc.connection
+      assert_equal "", Timeout.timeout(5) { eof_seen.pop }
+      assert acceptor.join(5), "acceptor thread did not finish"
+      assert_equal 2, peers.size
+    ensure
+      bc.close if bc
+      closer.kill if closer
+      acceptor.kill if acceptor
+      peers.each { |p| p.close unless p.closed? }
+      server.close if server && !server.closed?
     end
 
     # Removes the job a test left in tube name. Its client was closed with the job reserved, so
