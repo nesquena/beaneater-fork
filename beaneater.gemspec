@@ -20,9 +20,27 @@ Gem::Specification.new do |gem|
     "rubygems_mfa_required" => "true"
   }
 
-  gem.files         = `git ls-files`.split($/)
-  gem.executables   = gem.files.grep(%r{^bin/}).map{ |f| File.basename(f) }
-  gem.test_files    = gem.files.grep(%r{^(test|spec|features)/})
+  gem.files         = %w[
+    CHANGELOG.md
+    LICENSE.txt
+    README.md
+    lib/beaneater.rb
+    lib/beaneater/arguments.rb
+    lib/beaneater/configuration.rb
+    lib/beaneater/connection.rb
+    lib/beaneater/errors.rb
+    lib/beaneater/job.rb
+    lib/beaneater/job/collection.rb
+    lib/beaneater/job/record.rb
+    lib/beaneater/stats.rb
+    lib/beaneater/stats/fast_struct.rb
+    lib/beaneater/stats/stat_struct.rb
+    lib/beaneater/tube.rb
+    lib/beaneater/tube/collection.rb
+    lib/beaneater/tube/record.rb
+    lib/beaneater/version.rb
+  ]
+  gem.executables   = []
   gem.require_paths = ["lib"]
   gem.required_ruby_version = '>= 2.7'
   gem.add_development_dependency 'minitest', "~> 4.1.0"
