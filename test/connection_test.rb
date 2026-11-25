@@ -57,7 +57,7 @@ describe Beaneater::Connection do
       assert_equal 11300, @bc.port
     end
 
-    it "should use ENV['BEANSTALKD_URL'] when no address is given, and fall back to configuration when blank" do
+    it "should use ENV['BEANSTALKD_URL'] when no address is given, and fall back to configuration when it is empty" do
       saved_env = ENV['BEANSTALKD_URL']
       saved_url = Beaneater.configuration.beanstalkd_url
       server = TCPServer.new('127.0.0.1', 0)

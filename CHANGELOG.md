@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-* Packaging: the gem now ships only `lib/`, `CHANGELOG.md`, `LICENSE.txt` and `README.md` instead of every file in `git ls-files`, so tests, CI workflows, examples and repository metadata are no longer in the gem (#XXXX, @nesquena)
+* Packaging: the gem now ships only `lib/`, `.yardopts`, `CHANGELOG.md`, `LICENSE.txt` and `README.md` instead of every file in `git ls-files`, so tests, CI workflows, examples and repository metadata are no longer in the gem (@nesquena)
 
 ## 1.3.1 (November 4 2026)
 

@@ -20,7 +20,7 @@ Gem::Specification.new do |gem|
     "rubygems_mfa_required" => "true"
   }
 
-  gem.files         = Dir['lib/**/*.rb'] + %w[CHANGELOG.md LICENSE.txt README.md]
+  gem.files         = Dir['lib/**/*.rb'] + %w[.yardopts CHANGELOG.md LICENSE.txt README.md]
   gem.executables   = []
   gem.require_paths = ["lib"]
   gem.required_ruby_version = '>= 2.7'
