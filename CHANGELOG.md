@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-* Packaging: declare an explicit file list (`lib/`, `CHANGELOG.md`, `LICENSE.txt`, `README.md`) in `beaneater.gemspec` instead of shelling out to `git ls-files` and setting deprecated `test_files`, so tests, CI workflows, examples, and repository metadata are no longer shipped in the gem (#XXXX, @nesquena)
+* Packaging: the gem now ships only `lib/`, `CHANGELOG.md`, `LICENSE.txt` and `README.md` instead of every file in `git ls-files`, so tests, CI workflows, examples and repository metadata are no longer in the gem (#XXXX, @nesquena)
 
 ## 1.3.1 (November 4 2026)
 
